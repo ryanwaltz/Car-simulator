@@ -73,9 +73,11 @@ class Intersection:
                 if len(self.priority.intent) != 0:
                     self.matrix = self.priority.path
                     self.second_priority = []
-                    self.green_lighted = [self.priority.intent]
+                    self.green_lighted = [[self.priority.intent[0], self.priority.intent[1], self.priority.initial_angle]]
                     if self.priority.intent[1] == 0:
-                        self.green_lighted.append([self.priority.intent[0], 1])
+                        self.green_lighted.append([self.priority.intent[0], 1, self.priority.initial_angle])  # adjustment of self.greenlighted is necessary because intent can be interpreted different ways with an angle attached.
+                        #                                                                                       this doesn't make a problem within Car functions, but it does here.
+                    
                     for car in self.get_lowest_from_distance():
                         if car == self.priority or car in self.white_listed or car in self.second_priority:
                             pass
@@ -84,11 +86,11 @@ class Intersection:
                                 if self.combine(car):
                                     self.matrix = self.combine(car)
                                     self.second_priority.append(car)
-                                    self.green_lighted.append(car.intent)
+                                    self.green_lighted.append([car.intent[0], car.intent[1], car.initial_angle])
                                     if car.intent[1] == 0:
-                                        self.green_lighted.append([car.intent[0], 1])
+                                        self.green_lighted.append([car.intent[0], 1, car.initial_angle])
                                     car.stop_on_intersection = False
-                                elif car.intent in self.green_lighted:
+                                elif [car.intent[0], car.intent[1], car.initial_angle] in self.green_lighted:
                                     self.second_priority.append(car)
                                     car.stop_on_intersection = False
             else:
@@ -121,7 +123,9 @@ class Intersection:
                 if valuex == 1 and valuey == 1:
                     if type(self.matrix[1][1]) is int:
                         return_matrix[1][1] = iii
-                    elif self.matrix[1][1] == iii:
+                    elif type(iii) is int:  # fixing bugs
+                        return_matrix[1][1] = self.matrix[1][1]
+                    elif self.matrix[1][1] == iii and type(self.matrix[1][1]) == type(iii):
                         return_matrix[1][1] = iii
                     else:
                         return False
@@ -140,8 +144,8 @@ class Intersection:
         while True:
             for car in config.cars:
                 if car not in self.white_listed and car not in self.second_priority and car is not self.priority and car not in checked:
-                    if self.get_distance(car) < lowest:
-                        lowest = math.sqrt((car.pos[0] - self.pos[0]) ** 2 + (car.pos[1] - self.pos[1]) ** 2)
+                    if self.get_distance_horizontal_vertical(car) < lowest:
+                        lowest = self.get_distance_horizontal_vertical(car)
                         last_car = priority
                         priority = car
                     _return = False
@@ -156,7 +160,7 @@ class Intersection:
     def distance(self, car):
         return math.sqrt((car.pos[0] - self.pos[0]) ** 2 + (car.pos[1] - self.pos[1]) ** 2)
 
-    def get_distance(self, car):
+    def get_distance_horizontal_vertical(self, car):
         if car.road.vertical:
             return abs(car.pos[1]-self.pos[1])
         else:
@@ -193,7 +197,7 @@ class Road:
 
 
 class Car:
-    def __init__(self, color, position, angle, length, width, velocity, road=None, lane=None, intent=None):
+    def __init__(self, color, position, angle, length, width, velocity, road=None, lane=None, intent=None, iterator=0):
         self.color = color
         self.pos = position
         self.angle = angle
@@ -222,8 +226,9 @@ class Car:
         else:
             self.intent = intent  # should be a list with the intersection and which way you want to turn (-1 for left, 0 for straight, 1 for right)
         self.stop_on_intersection = False
-        self.start_time = time.time()
+        self.start_time = iterator
         self.path = self.createpath()
+        self.corners = []
 
     def createpath(self):
         if self.angle == 0:
@@ -303,7 +308,7 @@ class Car:
         bottom_left_x = math.cos(angle_to_bottom_left) * distance
         bottom_left_y = math.sin(angle_to_bottom_left) * distance
 
-        corners = [
+        self.corners = [
             [bottom_right_x + self.pos[0], bottom_right_y + self.pos[1]],
             [top_right_x + self.pos[0], top_right_y + self.pos[1]],
             [top_left_x + self.pos[0], top_left_y + self.pos[1]],
@@ -311,8 +316,8 @@ class Car:
         ]
         self.angle = -self.angle
 
-        pygame.draw.polygon(screen, self.color, corners)
-        pygame.draw.line(screen, (0, 255, 0), start_pos=corners[0], end_pos=corners[1])
+        pygame.draw.polygon(screen, self.color, self.corners)
+        pygame.draw.line(screen, (0, 255, 0), start_pos=self.corners[0], end_pos=self.corners[1])
 
     def turn(self, angle):
         self.angle += angle
@@ -332,7 +337,7 @@ class Car:
                     if self.pos[0] + distance_x >= (
                             self.target_lane - self.road.lanes + 1) * self.road.lane_size + self.road.start_pos:
                         distance_x_new = (self.pos[0] + distance_x) - ((
-                                                                                   self.target_lane - self.road.lanes + 1) * self.road.lane_size + self.road.start_pos)
+                                                                               self.target_lane - self.road.lanes + 1) * self.road.lane_size + self.road.start_pos)
                     else:
                         self.pos[0] += distance_x
                         self.pos[1] += distance_y
@@ -423,12 +428,12 @@ class Car:
             if self.stop_on_intersection:  # this block stops in front of the intersection - not in front of the other cars
                 try:
                     if self.intent[0].vertical:
-                        distance = abs(self.pos[0] - self.stop_on_intersection.pos[0]) - 45 - self.length / 2
+                        distance = abs(self.pos[0] - self.stop_on_intersection.pos[0]) - (45 if self.lane != 2 else 50) - self.length / 2
                         if distance < abs(distance_x):
                             distance_x = distance * (distance_x / abs(distance_x))
                             self.velocity = 0
                     else:
-                        distance = abs(self.pos[1] - self.stop_on_intersection.pos[1]) - 45 - self.length / 2
+                        distance = abs(self.pos[1] - self.stop_on_intersection.pos[1]) - (45 if self.lane != 2 else 50) - self.length / 2
                         if distance < abs(distance_y):
                             distance_y = distance * (distance_y / abs(distance_y))
                             self.velocity = 0
@@ -525,6 +530,82 @@ class Car:
 
             except IndexError:
                 self.intent = []
+
+    def check_collision(self, car):
+        distance_to_get_ordinary_angle = -self.angle
+        car_angle = distance_to_get_ordinary_angle + car.angle
+        self_angle = distance_to_get_ordinary_angle + self.angle
+
+        angle_from_self_to_car = math.atan2(self.pos[1]-car.pos[1], self.pos[0] - car.pos[0])
+
+        distance = math.sqrt((self.pos[1]-car.pos[1])**2 + (self.pos[0]-car.pos[0]**2))
+
+        adjusted_angle_from_self_to_car = angle_from_self_to_car + distance_to_get_ordinary_angle
+
+        car_pos = [self.pos[0] + distance * math.cos(adjusted_angle_from_self_to_car), self.pos[1] + distance * math.sin(adjusted_angle_from_self_to_car)]
+
+        angle_to_top_right_self = math.tan(self.width / self.length) + self_angle
+
+        angle_to_bottom_right_self = math.tan(-self.width / self.length) + self_angle
+
+        angle_to_top_left_self = math.pi + angle_to_bottom_right_self
+
+        angle_to_bottom_left_self = math.pi + angle_to_top_right_self
+
+        distance = math.sqrt((self.length / 2) ** 2 + (self.width / 2) ** 2)
+
+        top_right_x_self = math.cos(angle_to_top_right_self) * distance
+        top_right_y_self = math.sin(angle_to_top_right_self) * distance
+
+        top_left_x_self = math.cos(angle_to_top_left_self) * distance
+        top_left_y_self = math.sin(angle_to_top_left_self) * distance
+
+        bottom_right_x_self = math.cos(angle_to_bottom_right_self) * distance
+        bottom_right_y_self = math.sin(angle_to_bottom_right_self) * distance
+
+        bottom_left_x_self = math.cos(angle_to_bottom_left_self) * distance
+        bottom_left_y_self = math.sin(angle_to_bottom_left_self) * distance
+
+        self_corners = [
+            [top_right_x_self+self.pos[0], top_right_y_self+self.pos[1]],
+            [top_left_x_self+self.pos[0], top_left_y_self+self.pos[1]],
+            [bottom_right_x_self+self.pos[0], bottom_right_y_self+self.pos[1]],
+            [bottom_left_x_self+self.pos[0], bottom_left_y_self+self.pos[1]]
+        ]
+
+        angle_to_top_right_car = math.tan(self.width / self.length) + car_angle
+
+        angle_to_bottom_right_car = math.tan(-self.width / self.length) + car_angle
+
+        angle_to_top_left_car = math.pi + angle_to_bottom_right_car
+
+        angle_to_bottom_left_car = math.pi + angle_to_top_right_car
+
+        distance = math.sqrt((self.length / 2) ** 2 + (self.width / 2) ** 2)
+
+        top_right_x_car = math.cos(angle_to_top_right_car) * distance
+        top_right_y_car = math.sin(angle_to_top_right_car) * distance
+
+        top_left_x_car = math.cos(angle_to_top_left_car) * distance
+        top_left_y_car = math.sin(angle_to_top_left_car) * distance
+
+        bottom_right_x_car = math.cos(angle_to_bottom_right_car) * distance
+        bottom_right_y_car = math.sin(angle_to_bottom_right_car) * distance
+
+        bottom_left_x_car = math.cos(angle_to_bottom_left_car) * distance
+        bottom_left_y_car = math.sin(angle_to_bottom_left_car) * distance
+
+        car_corners = [
+            [top_right_x_car+car_pos[0], top_right_y_car+car_pos[1]],
+            [top_left_x_car+car_pos[0], top_left_y_car+car_pos[1]],
+            [bottom_right_x_car+car_pos[0], bottom_right_y_car+car_pos[1]],
+            [bottom_left_x_car+car_pos[0], bottom_left_y_car+car_pos[1]]
+        ]
+
+        for i in car_corners:
+            if self.corners[1][0] < i[0] < self.corners[0][0]:
+                if self.corners[0][1] < i[1] < self.corners[2][1]:
+                    print("collision detected")
 
     def align(self):
         if self.road.vertical:
