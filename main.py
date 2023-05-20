@@ -5,7 +5,7 @@ import time
 import config
 from car import Car
 from road import Road
-from intersection import Intersection
+from intersection import Intersection, Roundabout
 
 pygame.init()
 
@@ -27,6 +27,8 @@ def draw_screen():
             for valuex, iii in enumerate(ii):
                 if iii != 0:
                     pygame.draw.rect(screen, (0, 0, 255), (-45+30*valuex+i.pos[0], -45 + 30*valuey+i.pos[1], 30, 30))
+    for i in config.roundabouts:
+        i.blit(screen)
 
     for i in config.cars:
         i.blit(screen)
@@ -38,7 +40,6 @@ def run():
     iterator = 0
     iterator_time = 0
     running = True
-    now = time.time()
     while running:
         for i in pygame.event.get():
             if i.type == pygame.QUIT:
@@ -69,31 +70,23 @@ def run():
                 if iterator > 100:
                     running = False
                     calculate_time_end()
-
-            if not(355 < i.pos[0] < 445):
-                if not(355 < i.pos[1] < 445):
-                    print(i.lane, i.road.vertical, i.intent[0].vertical, i.intent[1], "this got screwed up", i.stop_on_intersection, i.velocity)
         """for i in config.cars:  # This serves no real purpose
             for ii in config.cars:
                 if i != ii:
                     i.check_collision(ii)"""
         for i in config.intersections:
             i.regulate()
+
         if len(config.cars) == 0:
             try:
                 spawn_new(iterator_time)
             except RecursionError:
                 pass
-        if random.randint(50, 100) == 69:
+        if random.randint(0, 100) == 69:
             try:
                 spawn_new(iterator_time)
             except RecursionError:
                 pass
-
-        if time.time() > now + 15:
-            config.intersections[0].switch_stoplight()
-            print("switched stoplight")
-            now = time.time()
 
         draw_screen()
         clock.tick(120)
@@ -154,12 +147,13 @@ config.roads = [Road(lanes=3, color=(255, 255, 255), start_pos=400, vertical=Tru
 
 
 config.cars = [
-    Car((255, 0, 0), [800, 800], angle=math.pi/2, length=50, width=20, velocity=1, road=config.roads[0], lane=3, intent=[config.roads[1], 1]),
-    Car((255, 0, 0), [730, 730], angle=math.pi/2, length=50, width=20, velocity=1, road=config.roads[0], lane=3, intent=[config.roads[1], 0]),
+    Car((255, 0, 0), [800, 800], angle=math.pi, length=50, width=20, velocity=1, road=config.roads[1], lane=1, intent=[config.roads[0], 0]),
         ]
 
 
-config.intersections = [Intersection(config.roads[0], config.roads[1], (200, 200, 200), True)]
+config.intersections = [Intersection(config.roads[0], config.roads[1], (200, 200, 200))]
+
+# config.roundabouts = [Roundabout(config.roads[0], config.roads[1], (200, 200, 200))]
 
 clock = pygame.time.Clock()
 now = time.time()

@@ -1,6 +1,7 @@
 import math
 import pygame
 import config
+import time
 
 
 class Car:
@@ -36,6 +37,16 @@ class Car:
         self.start_time = iterator
         self.path = self.createpath()
         self.corners = []
+        self.turn_start_time = 0
+        self.in_roundabout = False
+        self.circle_pos = [0, 0]
+        self.stop = False
+
+    def in_intersection(self, intersection):
+        if intersection.pos[0] - 47 < self.pos[0] < intersection.pos[0]+47:
+            if intersection.pos[1] - 47 < self.pos[1] < intersection.pos[1] + 47:
+                return True
+        return False
 
     def createpath(self):
         if self.angle == 0:
@@ -125,6 +136,10 @@ class Car:
 
         pygame.draw.polygon(screen, self.color, self.corners)
         pygame.draw.line(screen, (0, 255, 0), start_pos=self.corners[0], end_pos=self.corners[1])
+        pygame.draw.circle(screen, (255, 0, 0), self.circle_pos, 4)
+        """pygame.draw.line(screen, (255, 0, 0), self.circle_pos, self.pos)
+        pygame.draw.line(screen, (255, 0, 0), self.pos, config.roundabouts[0].pos)
+        pygame.draw.line(screen, (255, 0, 0), self.circle_pos, config.roundabouts[0].pos)"""
 
     def turn(self, angle):
         self.angle += angle
@@ -255,7 +270,7 @@ class Car:
     def check_movement(self):
         if len(self.intent) == 0:
             return
-        else:
+        elif len(config.intersections) != 0:
             adjusted = False
             for car in config.cars:
                 if car.lane == self.lane and car.angle == self.angle:
@@ -334,9 +349,105 @@ class Car:
                     else:  # math.pi/2
                         if self.pos[1] - self.intent[0].start_pos < -45:
                             self.intent = []
-
             except IndexError:
                 self.intent = []
+        else:
+            if self.intent[0].vertical:
+                iterator = 0
+            else:
+                iterator = 1
+            if self.in_roundabout is False and not self.stop and math.sqrt((self.pos[0] - config.roundabouts[0].pos[0])**2 + (self.pos[1] - config.roundabouts[0].pos[1])**2) < 65:
+                self.in_roundabout = True
+                self.join_roundabout(config.roundabouts[0])
+            if self.in_roundabout:
+                self.join_roundabout(config.roundabouts[0])
+                if self.check_exit():
+                    self.in_roundabout = False
+                    self.stop = True
+                    print("i exited")
+            elif self.exiting:
+                self.check_lane_change()
+
+    def check_lane_change(self):
+        desired_angle = self.initial_angle - self.intent[1] * math.pi/2
+        if desired_angle < 0:
+            desired_angle += 2*math.pi
+        road = self.intent[0]
+        if road.vertical:
+            if desired_angle == math.pi/2:
+                pos = road.start_pos + 1.5*road.lane_size
+            else:
+                pos = road.start_pos - 1.5*road.lane_size
+        else:
+            if desired_angle == math.pi:
+                pos = road.start_pos + 1.5*road.lane_size
+            else:
+                pos = road.start_pos - 1.5*road.lane_size
+
+
+    def join_roundabout(self, roundabout):
+
+        distance = math.sqrt((self.pos[0] - roundabout.pos[0])**2 + (self.pos[1] - roundabout.pos[1])**2)
+        radius = roundabout.radius
+
+        tangent_segment = math.sqrt(distance**2 - radius**2)
+
+        angle_tangent_center = math.asin(radius/distance)
+        angle_in_circle = math.asin(tangent_segment/distance)
+
+        angle_in_tangent = math.pi - (angle_tangent_center + angle_in_circle)
+
+        standard_angle_adjust = math.atan2(roundabout.pos[1]-self.pos[1], roundabout.pos[0]-self.pos[0])
+
+        x_adjust = -math.cos(standard_angle_adjust-angle_in_circle)*radius
+        y_adjust = -math.sin(standard_angle_adjust-angle_in_circle)*radius
+
+        new_pos = [x_adjust+roundabout.pos[0], y_adjust+roundabout.pos[1]]
+
+        get_angle = -(angle_tangent_center+standard_angle_adjust)
+
+        """print(math.degrees(angle_in_tangent), "should be 90")
+        print(math.degrees(angle_in_circle), "angle in circle")
+        print(math.degrees(angle_tangent_center), "angle in point")
+        print(math.degrees(standard_angle_adjust), "angle adjustment")
+        print(math.degrees(get_angle), "new angle")
+        print()"""
+        self.angle = get_angle
+        self.circle_pos = new_pos
+
+    def check_exit(self):
+        desired_angle = self.initial_angle - self.intent[1] * math.pi/2
+        if self.angle < 0:
+            angle = self.angle + 2*math.pi
+        else:
+            angle = self.angle
+        if abs(angle+math.pi/4 - desired_angle) < math.pi/16:
+            print("time to exit")
+            print(desired_angle, angle)
+            return True
+        return False
+
+    def exit_roundabout(self, lane, road):
+        exit_pos = road.start_pos + (lane - road.lanes + 1) * road.lane_size
+
+        desired_exit_position = []
+
+        if road.vertical:
+            distance_x = exit_pos - self.pos[0]
+            normalized_angle = self.normalize_angle()
+
+            distance_y = distance_x * math.tan(normalized_angle)
+
+    def normalize_angle(self, angle):
+        angle = self.angle
+        if 0 < self.angle < math.pi/2:
+            return self.angle
+        elif math.pi/2 < self.angle <= math.pi:
+            return math.pi - self.angle
+        elif math.pi < self.angle <= 3*math.pi/2:
+            return self.angle - math.pi
+        else:
+            return math.pi*2 - self.angle
 
     def check_collision(self, car):
         distance_to_get_ordinary_angle = -self.angle
@@ -512,6 +623,8 @@ class Car:
             (self.pos[0] - self.desired_position[0]) ** 2 + (self.pos[1] - self.desired_position[1]) ** 2)
 
         distance = self.velocity / time
+
+        self.turn_start_time += 1
 
         if distance_to_go < distance:
             self.pos = self.desired_position
